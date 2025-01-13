@@ -51,51 +51,23 @@ function getGreetingResponse(): string {
   return greetings[Math.floor(Math.random() * greetings.length)];
 }
 
-// Function to rewrite query and generate embedding in one call
-async function rewriteQueryAndGetEmbedding(query: string, previousMessages: Message[]): Promise<[string, number[]]> {
+// Function to generate embedding for the query
+async function getQueryEmbedding(query: string): Promise<number[]> {
   const startTime = performance.now();
-  console.log('🔄 Starting query rewrite and embedding generation...');
-  
-  const systemPrompt = "You are a specialized query rewriting assistant. Your task is to rewrite user questions to be more search-friendly while preserving their original intent. Focus on healthcare, pharmacy benefits, and insurance-related terminology that might appear in company documentation. Consider the conversation context when rewriting follow-up questions. Do not add any external knowledge - only reframe the question to better match potential document content.";
-  
-  const conversationContext = previousMessages
-    .slice(-4)
-    .map(msg => `${msg.role}: ${msg.content}`)
-    .join('\n');
+  console.log('🔄 Starting embedding generation...');
 
-  // First LLM call - Query rewriting
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: 'system',
-        content: systemPrompt
-      },
-      {
-        role: 'user',
-        content: `Previous conversation:\n${conversationContext}\n\nCurrent question: ${query}\n\nPlease rewrite the current question considering the context above.`
-      }
-    ],
-    temperature: 0.7,
-  });
-
-  const rewrittenQuery = completion.choices[0].message.content || query;
-
-  // Generate embedding for the rewritten query
   const response = await openai.embeddings.create({
     model: "text-embedding-ada-002",
-    input: rewrittenQuery,
+    input: query,
   });
 
   const endTime = performance.now();
   const timeTaken = (endTime - startTime).toFixed(2);
   
-  console.log('✨ Query rewriting complete:');
-  console.log(`📝 Original: "${query}"`);
-  console.log(`🔁 Rewritten: "${rewrittenQuery}"`);
+  console.log('✨ Embedding generation complete');
   console.log(`⏱️ Time taken: ${timeTaken}ms`);
 
-  return [rewrittenQuery, response.data[0].embedding];
+  return response.data[0].embedding;
 }
 
 // Function to perform similarity search
@@ -191,18 +163,41 @@ export async function POST(req: Request) {
     // If not a greeting, proceed with normal processing
     console.log('💬 Processing regular query...');
 
-    // Step 1: Rewrite query and get embedding in one call
-    const [rewrittenQuery, embedding] = await rewriteQueryAndGetEmbedding(userQuery, previousMessages);
+    // Generate embedding directly from the original query
+    const embedding = await getQueryEmbedding(userQuery);
 
-    // Step 2: Find similar content from the database
+    // Find similar content from the database
     const similarContent = await findSimilarContent(embedding);
 
-    // Step 3: Start response generation
+    // Start response generation
     const responseStartTime = performance.now();
     console.log('💭 Starting response generation...');
 
     // Prepare system message and messages array for streaming response
-    const systemPrompt = `You are a specialized document-based assistant. Your responses must be strictly based on the provided context and conversation history. Do not use external knowledge or make assumptions beyond what is explicitly stated in the context. If the context doesn't contain relevant information to answer the question, respond with 'I don't have enough information in the provided documentation to answer this question.' Format any numerical data, statistics, or specific terms exactly as they appear in the context. If referring to previous responses, ensure they were based on the documented content.
+    const systemPrompt = `You are a specialized assistant with the following guidelines:
+
+1. Conversational Approach:
+   - Maintain a friendly and natural dialog flow
+   - Use a warm, approachable tone
+   - Show genuine interest in user questions
+   - Engage in a way that encourages continued conversation
+
+2. Content Restrictions:
+   - Base all responses strictly on the provided context and conversation history
+   - Do not use any external knowledge
+   - Avoid making assumptions beyond what is explicitly stated
+   - Format numerical data and statistics exactly as they appear in the context
+
+3. Response Guidelines:
+   - When information is available: Provide accurate answers while maintaining a conversational tone
+   - When information is missing: Say "I wish I could help with that, but I don't have enough information in the provided documentation to answer your question. Is there something else you'd like to know about?"
+   - For follow-up questions: Verify that previous responses were based on documented content
+
+4. Quality Standards:
+   - Ensure accuracy while remaining approachable
+   - Balance professionalism with conversational friendliness
+   - Maintain consistency in information provided
+   - Keep responses clear and engaging
 
 Documentation Context: ${similarContent}`;
 
@@ -218,7 +213,7 @@ Documentation Context: ${similarContent}`;
     // Log the start of streaming
     console.log('📡 Initiating response stream...');
     
-    // Step 3: Stream the response using ai-sdk
+    // Stream the response using ai-sdk
     const result = await streamText({
       model: mem0('gpt-4o-mini', {
         user_id: userId,

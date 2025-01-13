@@ -7,35 +7,34 @@ import ReactMarkdown from 'react-markdown';
 export default function ChatPage() {
   const [userId] = useState(() => Math.random().toString(36).substring(7));
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showFAQs, setShowFAQs] = useState(false);
+  const [showButtons, setShowButtons] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isQuestionSelected, setIsQuestionSelected] = useState(false);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, reload, setMessages, setInput } = useChat({
     api: '/api/chat',
     body: { userId },
     onResponse: (response) => {
       console.log('Response started:', response);
       setError(null);
+      setIsQuestionSelected(false); // Reset the question selected state after response
     }
   });
 
   const frequentQuestions = [
-    "Tell me about your services",
-    "How do I schedule an appointment?",
-    "What are your working hours?"
+    "Tell me about Pharmacy specialty solutions from the perspective of a start consultant",
+    "What is the cost of Tufts Center for the Study of Drug Development claims?",
+    "What is the cost to develop a drug according to the study by JAMA?",
+    "Pitch to me what impact the Biosimilars Market has",
+    "What formulary options are available?"
   ];
 
   const handleQuestionClick = (question: string) => {
-    const syntheticEvent = {
-      preventDefault: () => {},
-      target: {
-        elements: {
-          message: { value: question }
-        }
-      }
-    } as unknown as React.FormEvent<HTMLFormElement>;
-    
-    handleSubmit(syntheticEvent);
+    setInput(question);  // Set the question in the input field
+    setShowFAQs(false); // Hide FAQ section
+    setIsQuestionSelected(true); // Enable the send button
   };
 
   const scrollToBottom = () => {
@@ -58,6 +57,29 @@ export default function ChatPage() {
     }
   };
 
+  const handleNewChat = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setMessages([]);
+    setInput('');
+    setShowFAQs(false);
+    setIsQuestionSelected(false);
+  };
+
+  const handlePracticeClick = () => {
+    setShowButtons(false);
+    setShowFAQs(false);
+  };
+
+  const handleFAQsClick = () => {
+    setShowFAQs(!showFAQs);
+  };
+
+  // Custom input change handler
+  const customHandleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleInputChange(e);
+    setIsQuestionSelected(!!e.target.value.trim()); // Enable send button if there's text
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 relative">
       {/* Mobile Menu Button */}
@@ -71,7 +93,7 @@ export default function ChatPage() {
       {/* Sidebar */}
       <div className={`
         fixed lg:static inset-y-0 left-0 z-40
-        w-64 bg-[#4FD1C5] text-white transform transition-transform duration-200 ease-in-out
+        w-64 bg-gray-100 text-gray-800 transform transition-transform duration-200 ease-in-out
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="flex flex-col h-full">
@@ -82,24 +104,17 @@ export default function ChatPage() {
             
             <div className="mb-8">
               <div className="flex items-center space-x-2 mb-4">
-                <MessageCircle size={20} className="text-white" />
-                <span className="text-white font-medium">Recent Chats</span>
+                <MessageCircle size={20} className="text-gray-700" />
+                <span className="text-gray-700 font-medium">Recent Chats</span>
               </div>
               <div className="text-sm">
                 {messages.length > 0 && (
-                  <div className="p-2 hover:bg-[#45B8AE] rounded transition-colors cursor-pointer">
+                  <div className="p-2 hover:bg-gray-200 rounded transition-colors cursor-pointer">
                     Last conversation
                   </div>
                 )}
               </div>
             </div>
-          </div>
-          
-          <div className="mt-auto p-4">
-            <button className="flex items-center space-x-2 text-white/80 hover:text-white transition-colors">
-              <Settings size={20} />
-              <span>Settings</span>
-            </button>
           </div>
         </div>
       </div>
@@ -110,7 +125,9 @@ export default function ChatPage() {
         <div className="bg-white p-4 flex justify-between items-center border-b border-slate-200">
           <h2 className="text-xl text-[#2D3748] ml-12 lg:ml-0">Chat Assistant</h2>
           <div className="flex space-x-2 sm:space-x-4">
-            <button className="bg-[#E56B8C] text-white px-2 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#D15A7B] transition-colors">
+            <button 
+              onClick={handleNewChat}
+              className="bg-[#4FD1C5] text-white px-2 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#45B8AE] transition-colors">
               <Plus size={20} />
               <span className="hidden sm:inline">New Chat</span>
             </button>
@@ -126,23 +143,51 @@ export default function ChatPage() {
           {/* Welcome Message */}
           {messages.length === 0 && (
             <div className="text-center my-4 sm:my-8">
-              <h2 className="text-xl sm:text-2xl font-bold mb-4 text-[#2D3748]">👋 Welcome to Acolyte Health Support</h2>
-              <p className="text-slate-600 mb-4 sm:mb-8">How can I help you today?</p>
+              <h2 className="text-xl sm:text-2xl font-bold mb-4 text-[#2D3748]">👋 Hi There!</h2>
+              <p className="text-slate-600 mb-8">
+                I am here to help you practice and refine your skills to confidently discuss pharmacy fundamentals, 
+                plan design basics, the marketplace, and the role of PBMs.
+              </p>
               
               <div className="max-w-2xl mx-auto px-2 sm:px-0">
-                <h3 className="text-left text-lg font-semibold mb-4 text-[#2D3748]">Frequently Asked Questions</h3>
-                <div className="grid gap-3 sm:gap-4">
-                  {frequentQuestions.map((question, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleQuestionClick(question)}
-                      className="text-left p-3 sm:p-4 bg-white rounded-lg border border-slate-200 hover:border-[#4FD1C5] hover:shadow-sm transition-all flex items-center space-x-2"
+                {/* Main Action Buttons */}
+                {showButtons && (
+                  <div className="flex justify-center space-x-6 mb-8">
+                    <button 
+                      onClick={handlePracticeClick}
+                      className="bg-[#4FD1C5] text-white px-2 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#45B8AE] transition-colors"
                     >
-                      <MessageCircle size={20} className="text-[#E56B8C] flex-shrink-0" />
-                      <span className="text-slate-700 text-sm sm:text-base">{question}</span>
+                      <FileText size={20} />
+                      <span className="hidden sm:inline">Practice</span>
                     </button>
-                  ))}
-                </div>
+                    <button 
+                      onClick={handleFAQsClick}
+                      className="bg-[#4FD1C5] text-white px-2 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#45B8AE] transition-colors"
+                    >
+                      <MessageCircle size={20} />
+                      <span className="hidden sm:inline">FAQs</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* FAQ Questions */}
+                {showFAQs && (
+                  <div className="mt-8">
+                    <h3 className="text-left text-lg font-semibold mb-4 text-[#2D3748]">Common Questions</h3>
+                    <div className="grid gap-3 sm:gap-4">
+                      {frequentQuestions.map((question, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleQuestionClick(question)}
+                          className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-[#4FD1C5] hover:shadow-sm transition-all flex items-start space-x-3"
+                        >
+                          <MessageCircle size={20} className="text-[#E56B8C] flex-shrink-0 mt-1" />
+                          <span className="text-slate-700 text-sm sm:text-base">{question}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -183,14 +228,16 @@ export default function ChatPage() {
           <form onSubmit={enhancedSubmit} className="flex space-x-2 sm:space-x-4">
             <input
               value={input}
-              onChange={handleInputChange}
+              onChange={customHandleInputChange}
               placeholder="Type your message here..."
               className="flex-1 p-2 sm:p-3 text-sm sm:text-base border border-slate-200 rounded-md focus:outline-none focus:border-[#4FD1C5] focus:ring-1 focus:ring-[#4FD1C5]"
             />
             <button
               type="submit"
-              disabled={isLoading || !input.trim()}
-              className="bg-[#E56B8C] text-white px-3 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#D15A7B] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLoading || (!input.trim() && !isQuestionSelected)}
+              className={`bg-[#E56B8C] text-white px-3 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#D15A7B] transition-colors ${
+                (!input.trim() && !isQuestionSelected) ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
               {isLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
