@@ -27,6 +27,30 @@ interface Message {
   content: string;
 }
 
+// Function to check if message is a greeting
+function isGreeting(query: string): boolean {
+  const greetingPatterns = [
+    /^(hi|hello|hey|good morning|good afternoon|good evening|greetings)(\s|$)/i,
+    /^(how are you|what's up|wassup|sup)(\?|\s|$)/i,
+    /^(hola|bonjour|hallo|ciao)(\s|$)/i
+  ];
+  
+  return greetingPatterns.some(pattern => pattern.test(query.trim().toLowerCase()));
+}
+
+// Function to get greeting response
+function getGreetingResponse(): string {
+  const greetings = [
+    "👋 Hello! How can I assist you today?",
+    "Hi there! 😊 What can I help you with?",
+    "👋 Hey! Ready to help you with any questions!",
+    "Hello! 🌟 How may I be of assistance?",
+    "Hi! 😃 Looking forward to helping you today!"
+  ];
+  
+  return greetings[Math.floor(Math.random() * greetings.length)];
+}
+
 // Function to rewrite query and generate embedding in one call
 async function rewriteQueryAndGetEmbedding(query: string, previousMessages: Message[]): Promise<[string, number[]]> {
   const startTime = performance.now();
@@ -115,14 +139,57 @@ async function findSimilarContent(embedding: number[]): Promise<string> {
 
 export const maxDuration = 30;
 
-
 export async function POST(req: Request) {
-  const totalStartTime = performance.now(); // Add overall timer at the start
+  const totalStartTime = performance.now();
   try {
     console.log('🚀 Starting request processing...');
     const { messages, userId } = await req.json();
     const userQuery = messages[messages.length - 1].content;
     const previousMessages = messages.slice(0, -1);
+
+    // Check if the query is a greeting
+    if (isGreeting(userQuery)) {
+      console.log('👋 Greeting detected, sending default response');
+      const greetingResponse = getGreetingResponse();
+      
+      // Create a stream response for greeting
+      const result = await streamText({
+        model: mem0('gpt-4o-mini', {
+          user_id: userId,
+        }),
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a friendly assistant. Respond to the greeting.',
+          },
+          ...previousMessages,
+          {
+            role: 'user',
+            content: userQuery
+          },
+          {
+            role: 'assistant',
+            content: greetingResponse
+          }
+        ],
+      });
+
+      // Add greeting to memories
+      const greetingMessages = [
+        { role: 'user', content: userQuery },
+        { role: 'assistant', content: greetingResponse }
+      ];
+      await addMemories([...previousMessages, ...greetingMessages], {
+        user_id: userId,
+        mem0ApiKey: process.env.MEM0_API_KEY,
+      });
+
+      console.log('👋 Greeting response sent');
+      return result.toDataStreamResponse();
+    }
+
+    // If not a greeting, proceed with normal processing
+    console.log('💬 Processing regular query...');
 
     // Step 1: Rewrite query and get embedding in one call
     const [rewrittenQuery, embedding] = await rewriteQueryAndGetEmbedding(userQuery, previousMessages);
