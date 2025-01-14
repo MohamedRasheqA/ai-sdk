@@ -30,8 +30,29 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      // Check if browser supports required APIs
+      if (!navigator.mediaDevices || !window.MediaRecorder) {
+        throw new Error('Browser does not support voice recording. Please use Chrome, Firefox, or Edge.');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          // Add Safari-compatible constraints
+          echoCancellation: true,
+          noiseSuppression: true,
+        } 
+      });
+
+      // Use audio/mp4 for Safari, fallback to webm for other browsers
+      const mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
+      
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: mimeType,
+        audioBitsPerSecond: 128000
+      });
+
       chunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (e) => {
@@ -41,32 +62,44 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        await processAudio(audioBlob);
-        
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
+        try {
+          const audioBlob = new Blob(chunksRef.current, { type: mimeType });
+          await processAudio(audioBlob);
+        } catch (err) {
+          console.error('Error processing audio:', err);
+          setError('Failed to process audio');
+        } finally {
+          // Stop all tracks
+          stream.getTracks().forEach(track => track.stop());
+        }
       };
 
-      mediaRecorderRef.current.start();
+      // Start recording in smaller chunks for better compatibility
+      mediaRecorderRef.current.start(100);
       setIsRecording(true);
       setError(null);
     } catch (err) {
-      setError('Failed to access microphone');
-      console.error('Error accessing microphone:', err);
+      console.error('Error starting recording:', err);
+      setError(err instanceof Error ? err.message : 'Failed to start recording');
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
+      try {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+      } catch (err) {
+        console.error('Error stopping recording:', err);
+        setError('Failed to stop recording');
+      }
     }
   };
 
   const processAudio = async (audioBlob: Blob) => {
     setIsProcessing(true);
     try {
+      // Convert to WAV or MP3 if needed
       const formData = new FormData();
       formData.append('audio', audioBlob);
 
@@ -76,7 +109,8 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
       });
 
       if (!response.ok) {
-        throw new Error('Failed to process audio');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to process audio');
       }
 
       const data = await response.json();
@@ -84,12 +118,22 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
         onTranscription(data.text);
       }
     } catch (err) {
-      setError('Failed to process audio');
       console.error('Error processing audio:', err);
+      setError(err instanceof Error ? err.message : 'Failed to process audio');
     } finally {
       setIsProcessing(false);
     }
   };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && isRecording) {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+      }
+    };
+  }, [isRecording]);
 
   return (
     <div className="flex items-center space-x-2">
@@ -116,6 +160,9 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
     </div>
   );
 };
+
+
+
 
 const TTSControls: React.FC<TTSControlsProps> = ({ messageContent, messageId, isEnabled }) => {
   const [isPlaying, setIsPlaying] = useState(false);
