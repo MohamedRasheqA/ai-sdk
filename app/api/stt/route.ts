@@ -1,6 +1,5 @@
 // app/api/stt/route.ts
 import { OpenAI } from 'openai';
-import { writeFile } from 'fs/promises';
 import { NextRequest } from 'next/server';
 
 if (!process.env.OPENAI_API_KEY) {
@@ -23,35 +22,37 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Convert File to Buffer
-    const bytes = await audioFile.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    // Convert File to Blob and create a new File object
+    const audioBlob = new Blob([await audioFile.arrayBuffer()], { type: audioFile.type });
+    const file = new File([audioBlob], 'audio.webm', { type: 'audio/webm' });
 
-    // Save the file temporarily
-    const filename = `temp-${Date.now()}.webm`;
-    await writeFile(filename, buffer);
-
-    // Transcribe using OpenAI Whisper with English language specification
+    // Transcribe using OpenAI Whisper
     const transcription = await openai.audio.transcriptions.create({
-      file: new File([buffer], filename, { type: 'audio/webm' }),
+      file,
       model: 'whisper-1',
-      language: 'en', // Explicitly set English language
+      language: 'en',
       response_format: 'json',
       prompt: 'Please transcribe this audio in English only'
     });
-
-    // Clean up the temporary file
-    const fs = require('fs').promises;
-    await fs.unlink(filename);
 
     return new Response(JSON.stringify({ text: transcription.text }), {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
     console.error('STT Error:', error);
-    return new Response(JSON.stringify({ error: 'Failed to convert speech to text' }), {
+    return new Response(JSON.stringify({ 
+      error: 'Failed to convert speech to text',
+      details: error instanceof Error ? error.message : String(error)
+    }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 }
+
+// Configure API route options for Vercel
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
