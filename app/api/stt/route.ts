@@ -22,16 +22,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Handle different audio formats
-    let file: File;
-    const supportedFormats = ['audio/webm', 'audio/mp4', 'audio/wav', 'audio/mpeg'];
-    
-    if (supportedFormats.includes(audioFile.type)) {
-      file = audioFile;
-    } else {
-      const audioBlob = new Blob([await audioFile.arrayBuffer()], { type: 'audio/mp4' });
-      file = new File([audioBlob], 'audio.mp4', { type: 'audio/mp4' });
-    }
+    // Create a proper audio file for OpenAI
+    const audioBlob = new Blob([await audioFile.arrayBuffer()], { type: 'audio/mp3' });
+    const file = new File([audioBlob], 'audio.mp3', { type: 'audio/mp3' });
 
     // Transcribe using OpenAI Whisper
     const transcription = await openai.audio.transcriptions.create({

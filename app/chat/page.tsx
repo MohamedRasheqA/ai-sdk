@@ -21,6 +21,7 @@ interface VoiceRecorderProps {
   disabled?: boolean;
 }
 
+
 const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -30,26 +31,33 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
 
   const startRecording = async () => {
     try {
-      // Check if browser supports required APIs
       if (!navigator.mediaDevices || !window.MediaRecorder) {
         throw new Error('Browser does not support voice recording. Please use Chrome, Firefox, or Edge.');
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
+          sampleRate: 44100,
           channelCount: 1,
-          sampleRate: 16000,
-          // Add Safari-compatible constraints
           echoCancellation: true,
           noiseSuppression: true,
         } 
       });
 
-      // Use audio/mp4 for Safari, fallback to webm for other browsers
-      const mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
-      
+      // Try to use mp3 format, fallback to other formats
+      let mimeType = 'audio/mp3';
+      if (!MediaRecorder.isTypeSupported('audio/mp3')) {
+        if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/wav')) {
+          mimeType = 'audio/wav';
+        } else {
+          mimeType = 'audio/mp4';
+        }
+      }
+
       mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: mimeType,
+        mimeType,
         audioBitsPerSecond: 128000
       });
 
@@ -69,12 +77,10 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
           console.error('Error processing audio:', err);
           setError('Failed to process audio');
         } finally {
-          // Stop all tracks
           stream.getTracks().forEach(track => track.stop());
         }
       };
 
-      // Start recording in smaller chunks for better compatibility
       mediaRecorderRef.current.start(100);
       setIsRecording(true);
       setError(null);
@@ -99,9 +105,11 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
   const processAudio = async (audioBlob: Blob) => {
     setIsProcessing(true);
     try {
-      // Convert to WAV or MP3 if needed
       const formData = new FormData();
-      formData.append('audio', audioBlob);
+      
+      // Convert to mp3 blob before sending
+      const mp3Blob = new Blob([await audioBlob.arrayBuffer()], { type: 'audio/mp3' });
+      formData.append('audio', mp3Blob, 'recording.mp3');
 
       const response = await fetch('/api/stt', {
         method: 'POST',
@@ -125,7 +133,6 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
     }
   };
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (mediaRecorderRef.current && isRecording) {
@@ -160,7 +167,6 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled
     </div>
   );
 };
-
 
 
 
