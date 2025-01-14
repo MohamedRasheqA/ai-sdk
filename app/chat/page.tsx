@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from 'ai/react';
-import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader, Users, Volume2, VolumeX } from 'lucide-react';
+import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader, Users, Volume2, VolumeX, Mic, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
 
@@ -15,6 +15,107 @@ interface TTSControlsProps {
   messageId: string;
   isEnabled: boolean;
 }
+
+interface VoiceRecorderProps {
+  onTranscription: (text: string) => void;
+  disabled?: boolean;
+}
+
+const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled }) => {
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      chunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        await processAudio(audioBlob);
+        
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      setError(null);
+    } catch (err) {
+      setError('Failed to access microphone');
+      console.error('Error accessing microphone:', err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const processAudio = async (audioBlob: Blob) => {
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob);
+
+      const response = await fetch('/api/stt', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to process audio');
+      }
+
+      const data = await response.json();
+      if (data.text) {
+        onTranscription(data.text);
+      }
+    } catch (err) {
+      setError('Failed to process audio');
+      console.error('Error processing audio:', err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center space-x-2">
+      <button
+        onClick={isRecording ? stopRecording : startRecording}
+        disabled={disabled || isProcessing}
+        className={`p-2 rounded-full transition-colors ${
+          isRecording ? 'bg-red-500' : 'bg-gray-100'
+        } hover:bg-opacity-90 disabled:opacity-50`}
+        title={isRecording ? 'Stop Recording' : 'Start Recording'}
+      >
+        {isProcessing ? (
+          <Loader className="w-4 h-4 animate-spin text-gray-600" />
+        ) : isRecording ? (
+          <Square className="w-4 h-4 text-white" />
+        ) : (
+          <Mic className="w-4 h-4 text-gray-600" />
+        )}
+      </button>
+      
+      {error && (
+        <span className="text-xs text-red-500">{error}</span>
+      )}
+    </div>
+  );
+};
 
 const TTSControls: React.FC<TTSControlsProps> = ({ messageContent, messageId, isEnabled }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -35,7 +136,7 @@ const TTSControls: React.FC<TTSControlsProps> = ({ messageContent, messageId, is
       setIsLoading(true);
       setError(null);
       
-      const response = await fetch('/api/tts', {  // Use the dedicated TTS endpoint
+      const response = await fetch('/api/tts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -63,7 +164,7 @@ const TTSControls: React.FC<TTSControlsProps> = ({ messageContent, messageId, is
       setIsLoading(false);
     }
   };
-
+  
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -410,7 +511,7 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Input Area with Persona Selector */}
+        {/* Input Area with Persona Selector and Voice Input */}
         <div className="p-2 sm:p-4 border-t border-slate-200 bg-white">
           <form onSubmit={enhancedSubmit} className="space-y-2">
             <div className="flex items-center space-x-2">
@@ -425,6 +526,13 @@ export default function ChatPage() {
                 onChange={customHandleInputChange}
                 placeholder={`Type your message here... (${selectedPersona} mode)`}
                 className="flex-1 p-2 sm:p-3 text-sm sm:text-base border border-slate-200 rounded-md focus:outline-none focus:border-[#4FD1C5] focus:ring-1 focus:ring-[#4FD1C5]"
+              />
+              <VoiceRecorder
+                onTranscription={(text) => {
+                  setInput(text);
+                  setIsQuestionSelected(true);
+                }}
+                disabled={isLoading}
               />
               <button
                 type="submit"
