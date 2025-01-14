@@ -1,8 +1,9 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from 'ai/react';
-import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader2, Users } from 'lucide-react';
+import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader, Users } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import Link from 'next/link';
 
 interface PersonaSelectorProps {
   selectedPersona: string;
@@ -24,6 +25,12 @@ const PersonaSelector = ({ selectedPersona, onPersonaChange }: PersonaSelectorPr
     </div>
   );
 };
+
+const LoadingSpinner = () => (
+  <div className="flex items-center justify-center">
+    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#4FD1C5]" />
+  </div>
+);
 
 export default function ChatPage() {
   const [userId] = useState(() => Math.random().toString(36).substring(7));
@@ -48,6 +55,19 @@ export default function ChatPage() {
     }
   });
 
+  const startPracticeScenario = async () => {
+    const startMessage = "Start a practice scenario for pharmacy consultation. Act as an interviewer and give me a relevant scenario to respond to.";
+    setInput(startMessage);
+    
+    try {
+      const fakeEvent = new Event('submit') as unknown as React.FormEvent<HTMLFormElement>;
+      await handleSubmit(fakeEvent);
+    } catch (error) {
+      console.error('Error starting practice scenario:', error);
+      setError('Failed to start practice scenario');
+    }
+  };
+
   const frequentQuestions = [
     "Tell me about Pharmacy specialty solutions from the perspective of a start consultant",
     "What is the cost of Tufts Center for the Study of Drug Development claims?",
@@ -56,10 +76,18 @@ export default function ChatPage() {
     "What formulary options are available?"
   ];
 
-  const handleQuestionClick = (question: string) => {
+  const handleQuestionClick = async (question: string) => {
     setInput(question);
     setShowFAQs(false);
     setIsQuestionSelected(true);
+    
+    try {
+      const fakeEvent = new Event('submit') as unknown as React.FormEvent<HTMLFormElement>;
+      await handleSubmit(fakeEvent);
+    } catch (error) {
+      console.error('Error submitting FAQ question:', error);
+      setError('Failed to process your request');
+    }
   };
 
   const scrollToBottom = () => {
@@ -69,6 +97,12 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    if (selectedPersona === 'roleplay' && messages.length === 0) {
+      startPracticeScenario();
+    }
+  }, [selectedPersona]);
 
   const enhancedSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -88,11 +122,16 @@ export default function ChatPage() {
     setInput('');
     setShowFAQs(false);
     setIsQuestionSelected(false);
+    setShowButtons(true);
+    setSelectedPersona('general');
+    setError(null);
   };
 
   const handlePracticeClick = () => {
+    setSelectedPersona('roleplay');
     setShowButtons(false);
     setShowFAQs(false);
+    startPracticeScenario();
   };
 
   const handleFAQsClick = () => {
@@ -122,9 +161,9 @@ export default function ChatPage() {
       `}>
         <div className="flex flex-col h-full">
           <div className="p-4">
-            <div className="flex items-center space-x-2 mb-8">
+            <Link href="/" className="flex items-center space-x-2 mb-8">
               <img src="Side-text.png" alt="Logo" className="w-30 h-10" />
-            </div>
+            </Link>
             
             <div className="mb-8">
               <div className="flex items-center space-x-2 mb-4">
@@ -239,7 +278,7 @@ export default function ChatPage() {
             {isLoading && (
               <div className="flex justify-start">
                 <div className="bg-white border border-slate-200 p-4 rounded-lg shadow-sm">
-                  <Loader2 className="w-5 h-5 animate-spin text-[#4FD1C5]" />
+                  <LoadingSpinner />
                 </div>
               </div>
             )}
@@ -271,7 +310,7 @@ export default function ChatPage() {
                 }`}
               >
                 {isLoading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <LoadingSpinner />
                 ) : (
                   <>
                     <Send size={20} />
