@@ -27,6 +27,89 @@ interface Message {
   content: string;
 }
 
+type Persona = 'general' | 'roleplay';
+
+// System prompts for different personas
+const SYSTEM_PROMPTS: Record<Persona, string> = {
+  general: `You are a specialized assistant with the following guidelines:
+
+1. Conversational Approach:
+   - Maintain a friendly and natural dialog flow
+   - Use a warm, approachable tone
+   - Show genuine interest in user questions
+   - Engage in a way that encourages continued conversation
+
+2. Content Restrictions:
+   - Base all responses strictly on the provided context and conversation history
+   - Do not use any external knowledge
+   - Avoid making assumptions beyond what is explicitly stated
+   - Format numerical data and statistics exactly as they appear in the context
+
+3. Response Guidelines:
+   - When information is available: Provide accurate answers while maintaining a conversational tone
+   - When information is missing: Say "I wish I could help with that, but I don't have enough information in the provided documentation to answer your question. Is there something else you'd like to know about?"
+   - For follow-up questions: Verify that previous responses were based on documented content
+
+4. Quality Standards:
+   - Ensure accuracy while remaining approachable
+   - Balance professionalism with conversational friendliness
+   - Maintain consistency in information provided
+   - Keep responses clear and engaging`,
+
+  roleplay: `You are an experienced pharmaceutical consultant with the following characteristics:
+
+1. Professional Background:
+   - Extensive experience in pharmaceutical industry consulting
+   - Deep understanding of PBM operations and healthcare systems
+   - Expert knowledge in drug development and market access
+
+2. Communication Style:
+   - Speak as a seasoned professional consultant
+   - Use industry-specific terminology appropriately
+   - Share insights from a consultant's perspective
+   - Maintain a professional yet engaging tone
+
+3. Response Approach:
+   - Frame answers from a strategic consulting viewpoint
+   - Provide practical insights based on industry experience
+   - Highlight key considerations a consultant would focus on
+   - Draw connections to broader industry implications
+
+4. Consulting Focus:
+   - Emphasize market dynamics and business impact
+   - Consider stakeholder perspectives
+   - Address both immediate concerns and long-term implications
+   - Provide actionable insights and recommendations
+
+Always base your responses on the provided documentation context while maintaining the role of an experienced pharmaceutical consultant.`
+};
+
+// Function to get embedding for a query
+async function getQueryEmbedding(query: string): Promise<number[]> {
+  const response = await openai.embeddings.create({
+    model: "text-embedding-ada-002",
+    input: query,
+  });
+  return response.data[0].embedding;
+}
+
+// Function to find similar content from database
+async function findSimilarContent(embedding: number[]): Promise<string> {
+  // Format the embedding array as a PostgreSQL vector string
+  const vectorString = `[${embedding.join(',')}]`;
+  
+  const query = `
+    SELECT contents, 1 - (vector <=> $1::vector) as similarity
+    FROM documents
+    WHERE 1 - (vector <=> $1::vector) > 0.7
+    ORDER BY similarity DESC
+    LIMIT 5;
+  `;
+  
+  const result = await pool.query(query, [vectorString]);
+  return result.rows.map(row => row.contents).join('\n\n');
+}
+
 // Function to check if message is a greeting
 function isGreeting(query: string): boolean {
   const greetingPatterns = [
@@ -51,71 +134,18 @@ function getGreetingResponse(): string {
   return greetings[Math.floor(Math.random() * greetings.length)];
 }
 
-// Function to generate embedding for the query
-async function getQueryEmbedding(query: string): Promise<number[]> {
-  const startTime = performance.now();
-  console.log('🔄 Starting embedding generation...');
-
-  const response = await openai.embeddings.create({
-    model: "text-embedding-ada-002",
-    input: query,
-  });
-
-  const endTime = performance.now();
-  const timeTaken = (endTime - startTime).toFixed(2);
-  
-  console.log('✨ Embedding generation complete');
-  console.log(`⏱️ Time taken: ${timeTaken}ms`);
-
-  return response.data[0].embedding;
-}
-
-// Function to perform similarity search
-async function findSimilarContent(embedding: number[]): Promise<string> {
-  const startTime = performance.now();
-  console.log('🔍 Starting similarity search...');
-
-  if (!Array.isArray(embedding) || embedding.length === 0) {
-    throw new Error('Invalid embedding format');
-  }
-
-  const client = await pool.connect();
-  try {
-    const vectorString = `[${embedding.join(',')}]`;
-    
-    const query = `
-      SELECT contents, 1 - (vector <=> $1::vector) as similarity
-      FROM documents
-      WHERE 1 - (vector <=> $1::vector) > 0.5
-      ORDER BY similarity DESC
-      LIMIT 5;
-    `;
-    
-    const result = await client.query(query, [vectorString]);
-    
-    const endTime = performance.now();
-    const timeTaken = (endTime - startTime).toFixed(2);
-    
-    console.log(`📊 Found ${result.rows.length} relevant documents`);
-    console.log(`⏱️ Search time: ${timeTaken}ms`);
-    
-    if (result.rows.length === 0) {
-      return "No relevant content found in the documentation.";
-    }
-    
-    return result.rows.map(row => row.contents).join('\n\n');
-  } finally {
-    client.release();
-  }
-}
-
 export const maxDuration = 30;
+
+function isValidPersona(persona: any): persona is Persona {
+  return ['general', 'roleplay'].includes(persona);
+}
 
 export async function POST(req: Request) {
   const totalStartTime = performance.now();
   try {
     console.log('🚀 Starting request processing...');
-    const { messages, userId } = await req.json();
+    const { messages, userId, persona: rawPersona = 'general' } = await req.json();
+    const persona = isValidPersona(rawPersona) ? rawPersona : 'general';
     const userQuery = messages[messages.length - 1].content;
     const previousMessages = messages.slice(0, -1);
 
@@ -132,7 +162,7 @@ export async function POST(req: Request) {
         messages: [
           {
             role: 'system',
-            content: 'You are a friendly assistant. Respond to the greeting.',
+            content: SYSTEM_PROMPTS[persona], // Use persona-specific prompt even for greetings
           },
           ...previousMessages,
           {
@@ -162,6 +192,7 @@ export async function POST(req: Request) {
 
     // If not a greeting, proceed with normal processing
     console.log('💬 Processing regular query...');
+    console.log(`🎭 Using ${persona} persona`);
 
     // Generate embedding directly from the original query
     const embedding = await getQueryEmbedding(userQuery);
@@ -173,31 +204,8 @@ export async function POST(req: Request) {
     const responseStartTime = performance.now();
     console.log('💭 Starting response generation...');
 
-    // Prepare system message and messages array for streaming response
-    const systemPrompt = `You are a specialized assistant with the following guidelines:
-
-1. Conversational Approach:
-   - Maintain a friendly and natural dialog flow
-   - Use a warm, approachable tone
-   - Show genuine interest in user questions
-   - Engage in a way that encourages continued conversation
-
-2. Content Restrictions:
-   - Base all responses strictly on the provided context and conversation history
-   - Do not use any external knowledge
-   - Avoid making assumptions beyond what is explicitly stated
-   - Format numerical data and statistics exactly as they appear in the context
-
-3. Response Guidelines:
-   - When information is available: Provide accurate answers while maintaining a conversational tone
-   - When information is missing: Say "I wish I could help with that, but I don't have enough information in the provided documentation to answer your question. Is there something else you'd like to know about?"
-   - For follow-up questions: Verify that previous responses were based on documented content
-
-4. Quality Standards:
-   - Ensure accuracy while remaining approachable
-   - Balance professionalism with conversational friendliness
-   - Maintain consistency in information provided
-   - Keep responses clear and engaging
+    // Get the appropriate system prompt based on persona
+    const systemPrompt = `${SYSTEM_PROMPTS[persona]}
 
 Documentation Context: ${similarContent}`;
 

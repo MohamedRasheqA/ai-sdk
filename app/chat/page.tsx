@@ -1,8 +1,29 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from 'ai/react';
-import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader2 } from 'lucide-react';
+import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader2, Users } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+
+interface PersonaSelectorProps {
+  selectedPersona: string;
+  onPersonaChange: (persona: string) => void;
+}
+
+const PersonaSelector = ({ selectedPersona, onPersonaChange }: PersonaSelectorProps) => {
+  return (
+    <div className="flex items-center space-x-2 px-2">
+      <Users size={20} className="text-gray-500" />
+      <select
+        value={selectedPersona}
+        onChange={(e) => onPersonaChange(e.target.value)}
+        className="text-sm border border-gray-200 rounded-md p-1 focus:outline-none focus:border-[#4FD1C5] focus:ring-1 focus:ring-[#4FD1C5]"
+      >
+        <option value="general">General</option>
+        <option value="roleplay">Role Play</option>
+      </select>
+    </div>
+  );
+};
 
 export default function ChatPage() {
   const [userId] = useState(() => Math.random().toString(36).substring(7));
@@ -12,14 +33,18 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isQuestionSelected, setIsQuestionSelected] = useState(false);
+  const [selectedPersona, setSelectedPersona] = useState('general');
 
   const { messages, input, handleInputChange, handleSubmit, isLoading, reload, setMessages, setInput } = useChat({
     api: '/api/chat',
-    body: { userId },
+    body: { 
+      userId,
+      persona: selectedPersona
+    },
     onResponse: (response) => {
       console.log('Response started:', response);
       setError(null);
-      setIsQuestionSelected(false); // Reset the question selected state after response
+      setIsQuestionSelected(false);
     }
   });
 
@@ -32,9 +57,9 @@ export default function ChatPage() {
   ];
 
   const handleQuestionClick = (question: string) => {
-    setInput(question);  // Set the question in the input field
-    setShowFAQs(false); // Hide FAQ section
-    setIsQuestionSelected(true); // Enable the send button
+    setInput(question);
+    setShowFAQs(false);
+    setIsQuestionSelected(true);
   };
 
   const scrollToBottom = () => {
@@ -74,10 +99,9 @@ export default function ChatPage() {
     setShowFAQs(!showFAQs);
   };
 
-  // Custom input change handler
   const customHandleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     handleInputChange(e);
-    setIsQuestionSelected(!!e.target.value.trim()); // Enable send button if there's text
+    setIsQuestionSelected(!!e.target.value.trim());
   };
 
   return (
@@ -223,31 +247,39 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Input Area */}
+        {/* Input Area with Persona Selector */}
         <div className="p-2 sm:p-4 border-t border-slate-200 bg-white">
-          <form onSubmit={enhancedSubmit} className="flex space-x-2 sm:space-x-4">
-            <input
-              value={input}
-              onChange={customHandleInputChange}
-              placeholder="Type your message here..."
-              className="flex-1 p-2 sm:p-3 text-sm sm:text-base border border-slate-200 rounded-md focus:outline-none focus:border-[#4FD1C5] focus:ring-1 focus:ring-[#4FD1C5]"
-            />
-            <button
-              type="submit"
-              disabled={isLoading || (!input.trim() && !isQuestionSelected)}
-              className={`bg-[#E56B8C] text-white px-3 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#D15A7B] transition-colors ${
-                (!input.trim() && !isQuestionSelected) ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>
-                  <Send size={20} />
-                  <span className="hidden sm:inline">Send</span>
-                </>
-              )}
-            </button>
+          <form onSubmit={enhancedSubmit} className="space-y-2">
+            <div className="flex items-center space-x-2">
+              <PersonaSelector
+                selectedPersona={selectedPersona}
+                onPersonaChange={setSelectedPersona}
+              />
+            </div>
+            <div className="flex space-x-2 sm:space-x-4">
+              <input
+                value={input}
+                onChange={customHandleInputChange}
+                placeholder={`Type your message here... (${selectedPersona} mode)`}
+                className="flex-1 p-2 sm:p-3 text-sm sm:text-base border border-slate-200 rounded-md focus:outline-none focus:border-[#4FD1C5] focus:ring-1 focus:ring-[#4FD1C5]"
+              />
+              <button
+                type="submit"
+                disabled={isLoading || (!input.trim() && !isQuestionSelected)}
+                className={`bg-[#E56B8C] text-white px-3 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#D15A7B] transition-colors ${
+                  (!input.trim() && !isQuestionSelected) ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Send size={20} />
+                    <span className="hidden sm:inline">Send</span>
+                  </>
+                )}
+              </button>
+            </div>
           </form>
         </div>
       </div>
