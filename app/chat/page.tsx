@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from 'ai/react';
-import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader, Users } from 'lucide-react';
+import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader, Users, Volume2, VolumeX } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
 
@@ -9,6 +9,106 @@ interface PersonaSelectorProps {
   selectedPersona: string;
   onPersonaChange: (persona: string) => void;
 }
+
+interface TTSControlsProps {
+  messageContent: string;
+  messageId: string;
+  isEnabled: boolean;
+}
+
+const TTSControls: React.FC<TTSControlsProps> = ({ messageContent, messageId, isEnabled }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  
+  const togglePlayback = async () => {
+    if (isLoading || !isEnabled) return;
+    
+    if (isPlaying) {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/tts', {  // Use the dedicated TTS endpoint
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: messageContent
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate audio');
+      }
+      
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.play();
+        setIsPlaying(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to play audio');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+    };
+  }, []);
+  
+  if (!isEnabled) return null;
+  
+  return (
+    <div className="flex items-center space-x-2">
+      <button
+        onClick={togglePlayback}
+        disabled={isLoading}
+        className={`p-2 rounded-full transition-colors ${
+          isPlaying ? 'bg-[#4FD1C5]' : 'bg-gray-100'
+        } hover:bg-[#45B8AE] disabled:opacity-50`}
+        title={isPlaying ? 'Stop' : 'Play'}
+      >
+        {isLoading ? (
+          <Loader className="w-4 h-4 animate-spin text-gray-600" />
+        ) : isPlaying ? (
+          <VolumeX className="w-4 h-4 text-white" />
+        ) : (
+          <Volume2 className="w-4 h-4 text-gray-600" />
+        )}
+      </button>
+      
+      {error && (
+        <span className="text-xs text-red-500">Failed to play audio</span>
+      )}
+      
+      <audio
+        ref={audioRef}
+        onEnded={() => setIsPlaying(false)}
+        onError={() => {
+          setError('Audio playback failed');
+          setIsPlaying(false);
+        }}
+      />
+    </div>
+  );
+};
 
 const PersonaSelector = ({ selectedPersona, onPersonaChange }: PersonaSelectorProps) => {
   return (
@@ -37,6 +137,7 @@ export default function ChatPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showFAQs, setShowFAQs] = useState(false);
   const [showButtons, setShowButtons] = useState(true);
+  const [isTTSEnabled, setIsTTSEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isQuestionSelected, setIsQuestionSelected] = useState(false);
@@ -46,7 +147,8 @@ export default function ChatPage() {
     api: '/api/chat',
     body: { 
       userId,
-      persona: selectedPersona
+      persona: selectedPersona,
+      tts: isTTSEnabled
     },
     onResponse: (response) => {
       console.log('Response started:', response);
@@ -138,6 +240,10 @@ export default function ChatPage() {
     setShowFAQs(!showFAQs);
   };
 
+  const toggleTTS = () => {
+    setIsTTSEnabled(!isTTSEnabled);
+  };
+
   const customHandleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     handleInputChange(e);
     setIsQuestionSelected(!!e.target.value.trim());
@@ -188,6 +294,15 @@ export default function ChatPage() {
         <div className="bg-white p-4 flex justify-between items-center border-b border-slate-200">
           <h2 className="text-xl text-[#2D3748] ml-12 lg:ml-0">Chat Assistant</h2>
           <div className="flex space-x-2 sm:space-x-4">
+            <button
+              onClick={toggleTTS}
+              className={`p-2 rounded-full transition-colors ${
+                isTTSEnabled ? 'bg-[#4FD1C5] text-white' : 'bg-gray-100 text-gray-600'
+              } hover:bg-[#45B8AE]`}
+              title={isTTSEnabled ? 'Disable Text-to-Speech' : 'Enable Text-to-Speech'}
+            >
+              {isTTSEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+            </button>
             <button 
               onClick={handleNewChat}
               className="bg-[#4FD1C5] text-white px-2 sm:px-4 py-2 rounded-md flex items-center space-x-1 sm:space-x-2 hover:bg-[#45B8AE] transition-colors">
@@ -272,6 +387,15 @@ export default function ChatPage() {
                   <div className="text-sm sm:text-base prose prose-slate dark:prose-invert max-w-none">
                     <ReactMarkdown>{m.content}</ReactMarkdown>
                   </div>
+                  {m.role === 'assistant' && (
+                    <div className="mt-2">
+                      <TTSControls 
+                        messageContent={m.content} 
+                        messageId={m.id} 
+                        isEnabled={isTTSEnabled}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
