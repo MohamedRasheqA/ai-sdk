@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from 'ai/react';
-import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader, Users, Volume2, VolumeX, Mic, Square } from 'lucide-react';
+import { Settings, Plus, MessageCircle, FileText, Send, Menu, X, Loader, Users, Volume2, VolumeX } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
 
@@ -15,160 +15,6 @@ interface TTSControlsProps {
   messageId: string;
   isEnabled: boolean;
 }
-
-interface VoiceRecorderProps {
-  onTranscription: (text: string) => void;
-  disabled?: boolean;
-}
-
-
-const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription, disabled }) => {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-
-  const startRecording = async () => {
-    try {
-      if (!navigator.mediaDevices || !window.MediaRecorder) {
-        throw new Error('Browser does not support voice recording. Please use Chrome, Firefox, or Edge.');
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          sampleRate: 44100,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-        } 
-      });
-
-      // Try to use mp3 format, fallback to other formats
-      let mimeType = 'audio/mp3';
-      if (!MediaRecorder.isTypeSupported('audio/mp3')) {
-        if (MediaRecorder.isTypeSupported('audio/webm')) {
-          mimeType = 'audio/webm';
-        } else if (MediaRecorder.isTypeSupported('audio/wav')) {
-          mimeType = 'audio/wav';
-        } else {
-          mimeType = 'audio/mp4';
-        }
-      }
-
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType,
-        audioBitsPerSecond: 128000
-      });
-
-      chunksRef.current = [];
-
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
-      };
-
-      mediaRecorderRef.current.onstop = async () => {
-        try {
-          const audioBlob = new Blob(chunksRef.current, { type: mimeType });
-          await processAudio(audioBlob);
-        } catch (err) {
-          console.error('Error processing audio:', err);
-          setError('Failed to process audio');
-        } finally {
-          stream.getTracks().forEach(track => track.stop());
-        }
-      };
-
-      mediaRecorderRef.current.start(100);
-      setIsRecording(true);
-      setError(null);
-    } catch (err) {
-      console.error('Error starting recording:', err);
-      setError(err instanceof Error ? err.message : 'Failed to start recording');
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      try {
-        mediaRecorderRef.current.stop();
-        setIsRecording(false);
-      } catch (err) {
-        console.error('Error stopping recording:', err);
-        setError('Failed to stop recording');
-      }
-    }
-  };
-
-  const processAudio = async (audioBlob: Blob) => {
-    setIsProcessing(true);
-    try {
-      const formData = new FormData();
-      
-      // Convert to mp3 blob before sending
-      const mp3Blob = new Blob([await audioBlob.arrayBuffer()], { type: 'audio/mp3' });
-      formData.append('audio', mp3Blob, 'recording.mp3');
-
-      const response = await fetch('/api/stt', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to process audio');
-      }
-
-      const data = await response.json();
-      if (data.text) {
-        onTranscription(data.text);
-      }
-    } catch (err) {
-      console.error('Error processing audio:', err);
-      setError(err instanceof Error ? err.message : 'Failed to process audio');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (mediaRecorderRef.current && isRecording) {
-        mediaRecorderRef.current.stop();
-        setIsRecording(false);
-      }
-    };
-  }, [isRecording]);
-
-  return (
-    <div className="flex items-center space-x-2">
-      <button
-        onClick={isRecording ? stopRecording : startRecording}
-        disabled={disabled || isProcessing}
-        className={`p-2 rounded-full transition-colors ${
-          isRecording ? 'bg-red-500' : 'bg-gray-100'
-        } hover:bg-opacity-90 disabled:opacity-50`}
-        title={isRecording ? 'Stop Recording' : 'Start Recording'}
-      >
-        {isProcessing ? (
-          <Loader className="w-4 h-4 animate-spin text-gray-600" />
-        ) : isRecording ? (
-          <Square className="w-4 h-4 text-white" />
-        ) : (
-          <Mic className="w-4 h-4 text-gray-600" />
-        )}
-      </button>
-      
-      {error && (
-        <span className="text-xs text-red-500">{error}</span>
-      )}
-    </div>
-  );
-};
-
-
 
 const TTSControls: React.FC<TTSControlsProps> = ({ messageContent, messageId, isEnabled }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -264,7 +110,7 @@ const TTSControls: React.FC<TTSControlsProps> = ({ messageContent, messageId, is
   );
 };
 
-const PersonaSelector = ({ selectedPersona, onPersonaChange }: PersonaSelectorProps) => {
+const PersonaSelector: React.FC<PersonaSelectorProps> = ({ selectedPersona, onPersonaChange }) => {
   return (
     <div className="flex items-center space-x-2 px-2">
       <Users size={20} className="text-gray-500" />
@@ -564,7 +410,7 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Input Area with Persona Selector and Voice Input */}
+        {/* Input Area with Persona Selector */}
         <div className="p-2 sm:p-4 border-t border-slate-200 bg-white">
           <form onSubmit={enhancedSubmit} className="space-y-2">
             <div className="flex items-center space-x-2">
@@ -579,13 +425,6 @@ export default function ChatPage() {
                 onChange={customHandleInputChange}
                 placeholder={`Type your message here... (${selectedPersona} mode)`}
                 className="flex-1 p-2 sm:p-3 text-sm sm:text-base border border-slate-200 rounded-md focus:outline-none focus:border-[#4FD1C5] focus:ring-1 focus:ring-[#4FD1C5]"
-              />
-              <VoiceRecorder
-                onTranscription={(text) => {
-                  setInput(text);
-                  setIsQuestionSelected(true);
-                }}
-                disabled={isLoading}
               />
               <button
                 type="submit"
